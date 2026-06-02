@@ -5,6 +5,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <hyprlang.hpp>
@@ -200,11 +201,14 @@ bool CSafirmaAuth::readFrame(int fd, std::string& out, int timeoutSecs) {
 }
 
 void CSafirmaAuth::killDaemon() {
+    // Kill spawned child if any
     if (m_childPid > 0) {
         kill(m_childPid, SIGTERM);
         waitpid(m_childPid, nullptr, WNOHANG);
         m_childPid = -1;
     }
+    // Also kill any other safirmad (e.g., manually started)
+    system("pkill safirmad 2>/dev/null");
 }
 
 void CSafirmaAuth::authThread(int timeoutSecs) {
