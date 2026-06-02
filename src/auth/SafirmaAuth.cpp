@@ -201,14 +201,13 @@ bool CSafirmaAuth::readFrame(int fd, std::string& out, int timeoutSecs) {
 }
 
 void CSafirmaAuth::killDaemon() {
-    // Kill spawned child if any
+    // Give the phone a moment to complete any in-flight BLE read
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
     if (m_childPid > 0) {
         kill(m_childPid, SIGTERM);
         waitpid(m_childPid, nullptr, WNOHANG);
         m_childPid = -1;
     }
-    // Also kill any other safirmad (e.g., manually started)
-    system("pkill safirmad 2>/dev/null");
 }
 
 void CSafirmaAuth::authThread(int timeoutSecs) {
