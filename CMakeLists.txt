@@ -33,6 +33,12 @@ add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-value
 
 add_compile_definitions(HYPRLOCK_VERSION="${VERSION}")
 
+option(ENABLE_SAFIRMA "Enable SAFIRMA phone authentication" ON)
+if(ENABLE_SAFIRMA)
+  add_compile_definitions(ENABLE_SAFIRMA)
+  message(STATUS "SAFIRMA phone authentication enabled")
+endif()
+
 if (DEFINED HYPRLOCK_COMMIT)
   add_compile_definitions(HYPRLOCK_COMMIT="${HYPRLOCK_COMMIT}")
 else()
@@ -89,6 +95,15 @@ pkg_check_modules(
   hyprutils>=0.11.0
   sdbus-c++>=2.0.0
   hyprgraphics>=0.1.6)
+
+# Optional: librsvg2 for SVG icon rendering
+pkg_check_modules(RSVG librsvg-2.0)
+if(RSVG_FOUND)
+  add_compile_definitions(HAS_RSVG)
+  message(STATUS "librsvg2 found — SVG icon support enabled")
+else()
+  message(STATUS "librsvg2 NOT found — falling back to Cairo bezier icons")
+endif()
 find_library(PAM_FOUND NAMES pam libpam)
 if(PAM_FOUND)
   set(PAM_LIB ${PAM_FOUND})
@@ -112,6 +127,10 @@ file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
 add_executable(hyprlock ${SRCFILES})
 target_link_libraries(hyprlock PRIVATE ${PAM_LIB} rt Threads::Threads PkgConfig::deps
                                        OpenGL::EGL OpenGL::GLES3)
+if(RSVG_FOUND)
+  target_link_libraries(hyprlock PRIVATE ${RSVG_LIBRARIES})
+  target_include_directories(hyprlock PRIVATE ${RSVG_INCLUDE_DIRS})
+endif()
 
 # protocols
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)

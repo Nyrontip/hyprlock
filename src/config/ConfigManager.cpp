@@ -255,6 +255,20 @@ void CConfigManager::init() {
     m_config.addConfigValue("auth:fingerprint:present_message", Hyprlang::STRING{"Scanning fingerprint"});
     m_config.addConfigValue("auth:fingerprint:retry_delay", Hyprlang::INT{250});
 
+    m_config.addConfigValue("auth:safirma:enabled", Hyprlang::INT{0});
+    m_config.addConfigValue("auth:safirma:demo", Hyprlang::INT{0});
+    m_config.addConfigValue("auth:safirma:timeout", Hyprlang::INT{30});
+    m_config.addConfigValue("auth:safirma:idle_text", Hyprlang::STRING{"\xEF\x82\x90 SAFIRMA"});
+    m_config.addConfigValue("auth:safirma:font_family", Hyprlang::STRING{"Victor Mono Bold Oblique"});
+    m_config.addConfigValue("auth:safirma:font_size", Hyprlang::INT{16});
+    m_config.addConfigValue("auth:safirma:accent_color", Hyprlang::INT{0xCC945C58});
+    m_config.addConfigValue("auth:safirma:panel_bg", Hyprlang::INT{0xE61A1A1A});
+    m_config.addConfigValue("auth:safirma:panel_border", Hyprlang::INT{0x88945C58});
+    m_config.addConfigValue("auth:safirma:button_bg", Hyprlang::INT{0x88945C58});
+    m_config.addConfigValue("auth:safirma:button_text", Hyprlang::INT{0xFFFFFFFF});
+    m_config.addConfigValue("auth:safirma:success_color", Hyprlang::INT{0xFF44CC44});
+    m_config.addConfigValue("auth:safirma:error_color", Hyprlang::INT{0xFFFF4444});
+
     m_config.addConfigValue("animations:enabled", Hyprlang::INT{1});
 
     m_config.addSpecialCategory("background", Hyprlang::SSpecialCategoryOptions{.key = nullptr, .anonymousKeyBased = true});
