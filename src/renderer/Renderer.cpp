@@ -17,6 +17,8 @@
 #include "widgets/Label.hpp"
 #include "widgets/Image.hpp"
 #include "widgets/Shape.hpp"
+#include "widgets/SafirmaOverlay.hpp"
+#include "../auth/SafirmaAuth.hpp"
 
 inline const float fullVerts[] = {
     1, 0, // top right
@@ -419,6 +421,16 @@ std::vector<ASP<IWidget>>& CRenderer::getOrCreateWidgetsFor(const CSessionLockSu
             }
 
             widgets[surf.m_outputID].back()->configure(c.values, POUTPUT);
+        }
+
+        // Add SafirmaOverlay programmatically if safirma is enabled (real or demo)
+        static const auto ENABLESAFIRMA = g_pConfigManager->getValue<Hyprlang::INT>("auth:safirma:enabled");
+        static const auto SAFIRMADEMO  = g_pConfigManager->getValue<Hyprlang::INT>("auth:safirma:demo");
+        if (*ENABLESAFIRMA) {
+            const auto W = makeAtomicShared<CSafirmaOverlay>(*SAFIRMADEMO);
+            W->configure({}, POUTPUT);
+            // Give it a high zindex by appending last (rendered on top)
+            widgets[surf.m_outputID].emplace_back(W);
         }
     }
 
