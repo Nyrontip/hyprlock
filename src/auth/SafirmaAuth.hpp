@@ -46,6 +46,7 @@ class CSafirmaAuth : public IAuthImplementation {
 
   private:
     void authThread(int timeoutSecs);
+    void killDaemon();
     bool connectUDS(int& fd, const std::string& socketPath);
     bool writeFrame(int fd, const std::string& data);
     bool readFrame(int fd, std::string& out, int timeoutSecs);
@@ -56,7 +57,8 @@ class CSafirmaAuth : public IAuthImplementation {
     std::atomic<bool>        m_cancelled{false};
     std::string              m_failText;
     std::string              m_promptText;
-    int                      m_socketFd = -1;
+    int                      m_socketFd  = -1;
+    pid_t                    m_childPid  = -1;
 };
 
 inline CSafirmaAuth* g_pSafirmaAuth = nullptr;

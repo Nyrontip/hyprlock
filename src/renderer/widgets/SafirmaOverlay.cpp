@@ -338,7 +338,7 @@ bool CSafirmaOverlay::draw(const SRenderData& data) {
         if (m_timerStarted) {
             auto elapsed = std::chrono::steady_clock::now() - m_stateStart;
 
-            if (m_state == SAFIRMA_UI_SCANNING && elapsed >= std::chrono::seconds(30)) {
+            if (m_state == SAFIRMA_UI_SCANNING && elapsed >= std::chrono::seconds(3)) {
                 m_state = SAFIRMA_UI_APPROVED;
                 startDemoTimer();
             }

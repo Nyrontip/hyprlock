@@ -27,6 +27,7 @@ void CSafirmaAuth::startAuth() {
     m_cancelled.store(false);
     m_failText.clear();
     m_promptText.clear();
+    m_childPid = -1;
 
     static const auto TIMEOUTCFG = g_pConfigManager->getValue<Hyprlang::INT>("auth:safirma:timeout");
     int               timeout    = *TIMEOUTCFG;
@@ -44,6 +45,7 @@ void CSafirmaAuth::startAuth() {
 void CSafirmaAuth::cancelAuth() {
     m_cancelled.store(true);
     m_state.store(SAFIRMA_IDLE);
+    killDaemon();
 
     if (m_socketFd >= 0) {
         close(m_socketFd);
@@ -57,10 +59,13 @@ void CSafirmaAuth::cancelAuth() {
 }
 
 void CSafirmaAuth::retryAuth() {
+    killDaemon();
+
     if (m_thread.joinable())
         m_thread.join();
 
     m_socketFd = -1;
+    m_childPid = -1;
     m_state.store(SAFIRMA_IDLE);
     m_cancelled.store(false);
     m_remainingSeconds.store(30);
@@ -194,6 +199,14 @@ bool CSafirmaAuth::readFrame(int fd, std::string& out, int timeoutSecs) {
     return true;
 }
 
+void CSafirmaAuth::killDaemon() {
+    if (m_childPid > 0) {
+        kill(m_childPid, SIGTERM);
+        waitpid(m_childPid, nullptr, WNOHANG);
+        m_childPid = -1;
+    }
+}
+
 void CSafirmaAuth::authThread(int timeoutSecs) {
 
     // Check demo mode from config
@@ -227,21 +240,26 @@ void CSafirmaAuth::authThread(int timeoutSecs) {
         return;
     }
 
-    // Determine socket path
+    // Determine socket path — must match safirmad's default resolution
     const char* envPath = getenv("SAFIRMA_SOCKET_PATH");
-    std::string socketPath = envPath ? std::string(envPath) : "/tmp/safirma/safirma.sock";
+    std::string socketPath;
+    if (envPath) {
+        socketPath = envPath;
+    } else if (const char* xdgRuntime = getenv("XDG_RUNTIME_DIR")) {
+        socketPath = std::string(xdgRuntime) + "/safirma/safirma.sock";
+    } else {
+        socketPath = "/tmp/safirma/safirma.sock";
+    }
 
     // Try to connect; if failed, spawn safirmad
     if (!connectUDS(m_socketFd, socketPath)) {
         Log::logger->log(Log::INFO, "safirma: daemon not running, spawning safirmad");
 
-        // Auto-reap to prevent zombies
-        signal(SIGCHLD, SIG_IGN);
-
         // Fork + exec safirmad
         pid_t pid = fork();
         if (pid == 0) {
-            // Child: exec safirmad
+            // Child: set socket path in env, then exec safirmad
+            setenv("SAFIRMA_SOCKET_PATH", socketPath.c_str(), 1);
             setsid();
             int nullFd = open("/dev/null", O_RDWR);
             if (nullFd >= 0) {
@@ -271,6 +289,7 @@ void CSafirmaAuth::authThread(int timeoutSecs) {
 
         // Parent: wait for socket to appear (up to 5s)
         Log::logger->log(Log::INFO, "safirma: waiting for daemon socket");
+        m_childPid = pid;
         for (int i = 0; i < 50; i++) {
             struct pollfd p = {.fd = -1, .events = POLLIN, .revents = 0};
             poll(&p, 0, 100); // 100ms sleep
@@ -282,14 +301,21 @@ void CSafirmaAuth::authThread(int timeoutSecs) {
 
         // Timeout waiting for daemon
         Log::logger->log(Log::ERR, "safirma: daemon did not start within 5s");
-        kill(pid, SIGTERM);
-        waitpid(pid, nullptr, WNOHANG);
+        killDaemon();
         m_failText = "safirmad did not start";
         m_state.store(SAFIRMA_ERROR);
         return;
     }
 
 connected:
+    // RAII: kill the spawned daemon when this function exits (any return path)
+    struct DaemonKiller {
+        CSafirmaAuth* self;
+        ~DaemonKiller() {
+            self->killDaemon();
+        }
+    } daemonKiller = {this};
+
     // Send authenticate request
     std::string request = "{\"type\":\"authenticate\"}";
     if (!writeFrame(m_socketFd, request)) {
