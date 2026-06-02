@@ -5,9 +5,13 @@
 
 #include <cerrno>
 #include <cstring>
+#include <fcntl.h>
 #include <hyprlang.hpp>
+#include <poll.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 CSafirmaAuth::~CSafirmaAuth() {
@@ -194,13 +198,65 @@ void CSafirmaAuth::authThread(int timeoutSecs) {
     const char* envPath = getenv("SAFIRMA_SOCKET_PATH");
     std::string socketPath = envPath ? std::string(envPath) : "/tmp/safirma/safirma.sock";
 
-    // Connect UDS
+    // Try to connect; if failed, spawn safirmad
     if (!connectUDS(m_socketFd, socketPath)) {
-        m_failText = "Cannot connect to safirmad";
+        Log::logger->log(Log::INFO, "safirma: daemon not running, spawning safirmad");
+
+        // Auto-reap to prevent zombies
+        signal(SIGCHLD, SIG_IGN);
+
+        // Fork + exec safirmad
+        pid_t pid = fork();
+        if (pid == 0) {
+            // Child: exec safirmad
+            setsid();
+            int nullFd = open("/dev/null", O_RDWR);
+            if (nullFd >= 0) {
+                dup2(nullFd, STDIN_FILENO);
+                dup2(nullFd, STDOUT_FILENO);
+                dup2(nullFd, STDERR_FILENO);
+                close(nullFd);
+            }
+            // Try known locations + PATH
+            static const char* BINARIES[] = {
+                "safirmad",                                           // PATH
+                "/usr/local/bin/safirmad",                            // system install
+                "/home/simondavid/Escritorio/DEVELOP/safirma/target/release/safirmad", // dev
+            };
+            for (auto bin : BINARIES) {
+                execvp(bin, (char* const[]){(char*)bin, nullptr});
+            }
+            _exit(1);
+        }
+
+        if (pid < 0) {
+            Log::logger->log(Log::ERR, "safirma: fork failed: {}", strerror(errno));
+            m_failText = "Cannot start safirmad";
+            m_state.store(SAFIRMA_ERROR);
+            return;
+        }
+
+        // Parent: wait for socket to appear (up to 5s)
+        Log::logger->log(Log::INFO, "safirma: waiting for daemon socket");
+        for (int i = 0; i < 50; i++) {
+            struct pollfd p = {.fd = -1, .events = POLLIN, .revents = 0};
+            poll(&p, 0, 100); // 100ms sleep
+            if (connectUDS(m_socketFd, socketPath)) {
+                Log::logger->log(Log::INFO, "safirma: daemon ready after ~{}ms", (i + 1) * 100);
+                goto connected;
+            }
+        }
+
+        // Timeout waiting for daemon
+        Log::logger->log(Log::ERR, "safirma: daemon did not start within 5s");
+        kill(pid, SIGTERM);
+        waitpid(pid, nullptr, WNOHANG);
+        m_failText = "safirmad did not start";
         m_state.store(SAFIRMA_ERROR);
         return;
     }
 
+connected:
     // Send authenticate request
     std::string request = "{\"type\":\"authenticate\"}";
     if (!writeFrame(m_socketFd, request)) {

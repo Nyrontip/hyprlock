@@ -361,7 +361,26 @@ bool CSafirmaOverlay::draw(const SRenderData& data) {
         }
         currentState = m_state;
     } else if (g_pSafirmaAuth) {
-        switch (g_pSafirmaAuth->getState()) {
+        auto authState = g_pSafirmaAuth->getState();
+
+        // Reset dismiss timer when auth goes active or idle
+        if (authState == SAFIRMA_IDLE || authState == SAFIRMA_CONNECTING || authState == SAFIRMA_WAITING)
+            m_timerStarted = false;
+
+        // Auto-dismiss final states after a few seconds
+        if (authState == SAFIRMA_APPROVED || authState == SAFIRMA_DENIED || authState == SAFIRMA_EXPIRED || authState == SAFIRMA_ERROR) {
+            if (!m_timerStarted) {
+                m_stateStart   = std::chrono::steady_clock::now();
+                m_timerStarted = true;
+            } else {
+                auto elapsed = std::chrono::steady_clock::now() - m_stateStart;
+                int  limit   = (authState == SAFIRMA_ERROR) ? 4 : 3;
+                if (elapsed >= std::chrono::seconds(limit))
+                    g_pSafirmaAuth->cancelAuth();
+            }
+        }
+
+        switch (authState) {
             case SAFIRMA_IDLE:      currentState = SAFIRMA_UI_IDLE;     break;
             case SAFIRMA_CONNECTING:
             case SAFIRMA_WAITING:   currentState = SAFIRMA_UI_SCANNING; break;
@@ -582,8 +601,12 @@ void CSafirmaOverlay::drawModal(const SRenderData& data, eSafirmaUIState state) 
     int  remaining = 30;
     auto timerTex  = CachedText{};
     if (hasTimer) {
-        auto elapsed = std::chrono::steady_clock::now() - m_stateStart;
-        remaining    = 30 - (int)std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
+        if (m_demoMode) {
+            auto elapsed = std::chrono::steady_clock::now() - m_stateStart;
+            remaining    = 30 - (int)std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
+        } else if (g_pSafirmaAuth) {
+            remaining = g_pSafirmaAuth->getRemainingSeconds();
+        }
         if (remaining < 0) remaining = 0;
         char buf[16];
         snprintf(buf, sizeof(buf), "%02d:%02d", remaining / 60, remaining % 60);
@@ -789,22 +812,20 @@ void CSafirmaOverlay::onClick(uint32_t button, bool down, const Vector2D& pos) {
     auto authState = g_pSafirmaAuth->getState();
 
     if (authState == SAFIRMA_IDLE) {
-        Log::logger->log(Log::INFO, "safirma: button clicked, starting auth");
+        Log::logger->log(Log::INFO, "safirma: idle clicked, starting auth");
         g_pSafirmaAuth->startAuth();
         return;
     }
 
     if (authState == SAFIRMA_WAITING || authState == SAFIRMA_CONNECTING) {
-        // Only Cancel button cancels during waiting
-        if (m_buttonBox.containsPoint(localPos))
-            g_pSafirmaAuth->cancelAuth();
+        Log::logger->log(Log::INFO, "safirma: cancel button clicked");
+        g_pSafirmaAuth->cancelAuth();
         return;
     }
 
-    if (authState != SAFIRMA_APPROVED) {
-        Log::logger->log(Log::INFO, "safirma: modal clicked, cancelling");
-        g_pSafirmaAuth->cancelAuth();
-    }
+    // APPROVED, DENIED, EXPIRED, ERROR: click to dismiss
+    Log::logger->log(Log::INFO, "safirma: modal clicked, dismissing");
+    g_pSafirmaAuth->cancelAuth();
 }
 
 CBox CSafirmaOverlay::getBoundingBoxWl() const {
@@ -822,5 +843,7 @@ CBox CSafirmaOverlay::getBoundingBoxWl() const {
     auto state = g_pSafirmaAuth->getState();
     if (state == SAFIRMA_IDLE)
         return CBox{Vector2D{m_buttonBox.x, m_viewport.y - m_buttonBox.y - m_buttonBox.h}, Vector2D{m_buttonBox.w, m_buttonBox.h}};
+    if (state == SAFIRMA_CONNECTING || state == SAFIRMA_WAITING)
+        return m_cancelBox;
     return CBox{0, 0, m_viewport.x, m_viewport.y};
 }
