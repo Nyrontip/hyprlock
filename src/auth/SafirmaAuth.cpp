@@ -4,6 +4,7 @@
 #include "../helpers/Log.hpp"
 
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <fcntl.h>
 #include <hyprlang.hpp>
@@ -12,6 +13,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
 
 CSafirmaAuth::~CSafirmaAuth() {
@@ -193,6 +195,37 @@ bool CSafirmaAuth::readFrame(int fd, std::string& out, int timeoutSecs) {
 }
 
 void CSafirmaAuth::authThread(int timeoutSecs) {
+
+    // Check demo mode from config
+    static const auto DEMOMODE = g_pConfigManager->getValue<Hyprlang::INT>("auth:safirma:demo");
+    bool              demo     = *DEMOMODE;
+
+    if (demo) {
+        Log::logger->log(Log::INFO, "safirma: demo mode, simulating auth flow");
+        m_promptText = "Simulating authentication…";
+        m_state.store(SAFIRMA_WAITING);
+
+        // Simulate phone interaction: ~3s then auto-approve
+        for (int i = 0; i < timeoutSecs && !m_cancelled.load(); i++) {
+            m_remainingSeconds.store(timeoutSecs - i);
+            g_pHyprlock->enqueueForceUpdateTimers();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+
+            // Auto-approve after 3 seconds
+            if (i >= 2 && !m_cancelled.load()) {
+                m_state.store(SAFIRMA_APPROVED);
+                g_pAuth->enqueueUnlock();
+                return;
+            }
+        }
+
+        if (!m_cancelled.load()) {
+            m_failText = "Challenge expired";
+            m_state.store(SAFIRMA_EXPIRED);
+            g_pAuth->enqueueFail(m_failText, AUTH_IMPL_SAFIRMA);
+        }
+        return;
+    }
 
     // Determine socket path
     const char* envPath = getenv("SAFIRMA_SOCKET_PATH");
