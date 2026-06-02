@@ -1,6 +1,7 @@
 #include "Auth.hpp"
 #include "Pam.hpp"
 #include "Fingerprint.hpp"
+#include "SafirmaAuth.hpp"
 #include "../config/ConfigManager.hpp"
 #include "../core/hyprlock.hpp"
 #include "src/helpers/Log.hpp"
@@ -15,6 +16,14 @@ CAuth::CAuth() {
     static const auto ENABLEFINGERPRINT = g_pConfigManager->getValue<Hyprlang::INT>("auth:fingerprint:enabled");
     if (*ENABLEFINGERPRINT)
         m_vImpls.emplace_back(makeShared<CFingerprint>());
+
+    static const auto ENABLESAFIRMA = g_pConfigManager->getValue<Hyprlang::INT>("auth:safirma:enabled");
+    static const auto SAFIRMADEMO  = g_pConfigManager->getValue<Hyprlang::INT>("auth:safirma:demo");
+    if (*ENABLESAFIRMA && !*SAFIRMADEMO) {
+        auto safirma = makeShared<CSafirmaAuth>();
+        g_pSafirmaAuth = safirma.get();
+        m_vImpls.emplace_back(std::move(safirma));
+    }
 
     RASSERT(!m_vImpls.empty(), "At least one authentication method must be enabled!");
 }

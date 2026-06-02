@@ -5,6 +5,7 @@
 #include "../renderer/AsyncResourceManager.hpp"
 #include "../auth/Auth.hpp"
 #include "../auth/Fingerprint.hpp"
+#include "../auth/SafirmaAuth.hpp"
 #include "./Dbus.hpp"
 #include "./Egl.hpp"
 #include "./Seat.hpp"
@@ -662,6 +663,13 @@ void CHyprlock::onKey(uint32_t key, bool down) {
 
 void CHyprlock::handleKeySym(xkb_keysym_t sym, bool composed) {
     const auto SYM = sym;
+
+    // If safirma is waiting, Escape cancels the auth
+    if (g_pSafirmaAuth && g_pSafirmaAuth->checkWaiting() && SYM == XKB_KEY_Escape) {
+        Log::logger->log(Log::INFO, "Cancelling safirma auth via Escape");
+        g_pSafirmaAuth->cancelAuth();
+        return;
+    }
 
     if (SYM == XKB_KEY_Escape || (m_bCtrl && (SYM == XKB_KEY_u || SYM == XKB_KEY_BackSpace || SYM == XKB_KEY_a))) {
         Log::logger->log(Log::INFO, "Clearing password buffer");
